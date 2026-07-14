@@ -3,9 +3,12 @@ import { AppModule } from './modules/app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import configuration from './config/configuration';
+import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const configService = app.get(ConfigService);
+
   const config = new DocumentBuilder()
     .setTitle('Projeto de TCC - Backend')
     .setDescription('Rotas dos projeto')
@@ -20,6 +23,12 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  app.enableCors({
+    origin: configService.get<string>('frontendUrl'),
+    credentials: true,
+  });
+
   await app.listen(configuration().port);
 }
 bootstrap();

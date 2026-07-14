@@ -10,4 +10,5 @@ export default () => ({
     synchronize: true,
   },
   jwtSecretKey: process.env.JWT_SECRET,
+  frontendUrl: process.env.FRONTEND_URL,
 });

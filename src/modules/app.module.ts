@@ -13,6 +13,7 @@ import { AuthModule } from 'src/auth/auth.module';
   imports: [
     ConfigModule.forRoot({
       load: [configuration],
+      isGlobal: true,
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
