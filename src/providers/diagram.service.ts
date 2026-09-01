@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Diagram, DiagramDTO } from 'src/entities/diagram.entity';
@@ -11,6 +11,8 @@ import {
   serializeToBase64,
 } from 'src/utils/base64.handler';
 import { User } from 'src/entities/user.entity';
+
+const MAX_DIAGRAMS_PER_USER = 3;
 
 @Injectable()
 export class DiagramsService {
@@ -26,6 +28,14 @@ export class DiagramsService {
     diagram: CreateDiagramRequestDTO,
     userId: string,
   ): Promise<DiagramDTO> {
+    const activeDiagramsCount = await this.diagramsRepository.count({
+      where: { user: { id: userId }, is_deleted: false },
+    });
+    if (activeDiagramsCount >= MAX_DIAGRAMS_PER_USER) {
+      throw new BadRequestException(
+        `Limite de ${MAX_DIAGRAMS_PER_USER} diagramas por usuário atingido.`,
+      );
+    }
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -58,7 +68,7 @@ export class DiagramsService {
 
   async findAll(userId: string): Promise<DiagramDTO[]> {
     const diagrams = await this.diagramsRepository.find({
-      where: { user: { id: userId } },
+      where: { user: { id: userId }, is_deleted: false },
     });
     return diagrams.map((diagram) => {
       if (diagram.serialized_object) {
@@ -100,6 +110,9 @@ export class DiagramsService {
     diagram: UpdateDiagramRequestDTO,
   ): Promise<DiagramDTO> {
     const diagramToUpdate = await this.findOne(id, userId);
+    if (diagram.name) {
+      diagramToUpdate.name = diagram.name;
+    }
     if (diagram.serialized_object) {
       diagramToUpdate.serialized_object = serializeToBase64(
         diagram.serialized_object,

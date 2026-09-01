@@ -2,6 +2,13 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
 
 export class CreateDiagramRequestDTO {
+
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
+  name!: string;
+
+
   @ApiProperty()
   @IsNotEmpty()
   @IsString()
@@ -9,6 +16,13 @@ export class CreateDiagramRequestDTO {
 }
 
 export class UpdateDiagramRequestDTO {
+
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
+  name!: string;
+
+
   @ApiProperty()
   @IsNotEmpty()
   @IsString()
