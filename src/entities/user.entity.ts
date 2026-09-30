@@ -2,7 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Exclude } from 'class-transformer';
 import { DefaultEntity } from 'src/entities/default-entity';
 import { Diagram } from 'src/entities/diagram.entity';
-// import { SharedDiagram } from 'src/entities/shared-diagram.entity';
+import { SharedDiagram } from 'src/entities/shared-diagram.entity';
 import {
   UserPreference,
   UserPreferencesDTO,
@@ -40,8 +40,8 @@ export class User extends DefaultEntity {
   @JoinColumn({ name: 'user_preferences_id' })
   preferences!: UserPreference;
 
-  // @OneToMany(() => SharedDiagram, (sharedDiagram) => sharedDiagram.user)
-  // shared_diagrams!: SharedDiagram;
+  @OneToMany(() => SharedDiagram, (sharedDiagram) => sharedDiagram.user)
+  shared_diagrams!: SharedDiagram[];
 
   @DeleteDateColumn({ nullable: true })
   @Exclude()

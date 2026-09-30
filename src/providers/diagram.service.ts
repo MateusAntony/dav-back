@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Diagram, DiagramDTO } from 'src/entities/diagram.entity';
@@ -11,6 +11,9 @@ import {
   serializeToBase64,
 } from 'src/utils/base64.handler';
 import { User } from 'src/entities/user.entity';
+import { SharedDiagram } from 'src/entities/shared-diagram.entity';
+import { AccessPermission } from 'src/enums/access-permission';
+import { randomBytes } from 'crypto';
 
 const MAX_DIAGRAMS_PER_USER = 3;
 
@@ -21,6 +24,8 @@ export class DiagramsService {
     private diagramsRepository: Repository<Diagram>,
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+    @InjectRepository(SharedDiagram)
+    private sharedDiagramsRepository: Repository<SharedDiagram>,
     private dataSource: DataSource,
   ) {}
 
@@ -70,14 +75,26 @@ export class DiagramsService {
     const diagrams = await this.diagramsRepository.find({
       where: { user: { id: userId }, is_deleted: false },
     });
-    return diagrams.map((diagram) => {
+    const ownDiagrams = diagrams.map((diagram) => {
       if (diagram.serialized_object) {
         diagram.serialized_object = deserializeFromBase64(
           diagram.serialized_object,
         );
       }
-      return DiagramDTO.toDTO(diagram);
+      return { ...DiagramDTO.toDTO(diagram), is_owner: true };
     });
+    const receivedShares = await this.sharedDiagramsRepository.find({
+      where: { user: { id: userId } },
+      relations: ['diagram'],
+    });
+    const sharedDiagrams = receivedShares
+      .filter((share) => !share.diagram.is_deleted)
+      .map((share) => {
+        const diagram = share.diagram;
+        diagram.serialized_object = deserializeFromBase64(diagram.serialized_object);
+        return { ...DiagramDTO.toDTO(diagram), is_owner: false };
+      });
+    return [...ownDiagrams, ...sharedDiagrams];
   }
 
   async findOne(id: string, userId: string): Promise<DiagramDTO | null> {
@@ -85,18 +102,34 @@ export class DiagramsService {
       where: { id: id, user: { id: userId } },
     });
     if (!diagram) {
-      throw new Error('Usuário não encontrado');
+      const share = await this.sharedDiagramsRepository.findOne({
+        where: { diagram: { id }, user: { id: userId } },
+        relations: ['diagram'],
+      });
+      if (!share || share.diagram.is_deleted) {
+        throw new NotFoundException('Diagrama não encontrado');
+      }
+      share.diagram.serialized_object = deserializeFromBase64(share.diagram.serialized_object);
+      return { ...DiagramDTO.toDTO(share.diagram), is_owner: false };
     }
     if (diagram.serialized_object) {
       diagram.serialized_object = deserializeFromBase64(
         diagram.serialized_object,
       );
     }
-    return DiagramDTO.toDTO(diagram);
+    return { ...DiagramDTO.toDTO(diagram), is_owner: true };
+  }
+
+  private async findOwned(id: string, userId: string): Promise<Diagram> {
+    const diagram = await this.diagramsRepository.findOne({
+      where: { id, user: { id: userId }, is_deleted: false },
+    });
+    if (!diagram) throw new NotFoundException('Diagrama não encontrado');
+    return diagram;
   }
 
   async remove(id: string, userId: string): Promise<void> {
-    await this.findOne(id, userId);
+    await this.findOwned(id, userId);
     const currentDate = new Date().toISOString();
     await this.diagramsRepository.update(id, {
       is_deleted: true,
@@ -109,7 +142,7 @@ export class DiagramsService {
     userId: string,
     diagram: UpdateDiagramRequestDTO,
   ): Promise<DiagramDTO> {
-    const diagramToUpdate = await this.findOne(id, userId);
+    const diagramToUpdate = await this.findOwned(id, userId);
     if (diagram.name) {
       diagramToUpdate.name = diagram.name;
     }
@@ -119,6 +152,60 @@ export class DiagramsService {
       );
     }
     await this.diagramsRepository.update(id, diagramToUpdate);
-    return diagramToUpdate;
+    if (diagramToUpdate.serialized_object) {
+      diagramToUpdate.serialized_object = deserializeFromBase64(diagramToUpdate.serialized_object);
+    }
+    return DiagramDTO.toDTO(diagramToUpdate);
+  }
+
+  async setPublicShare(id: string, userId: string, enabled: boolean): Promise<DiagramDTO> {
+    const diagram = await this.findOwned(id, userId);
+    diagram.public_share_enabled = enabled;
+    diagram.public_share_token = enabled
+      ? diagram.public_share_token || randomBytes(32).toString('hex')
+      : null;
+    await this.diagramsRepository.save(diagram);
+    return DiagramDTO.toDTO(diagram);
+  }
+
+  async getPublicDiagram(token: string): Promise<DiagramDTO> {
+    const diagram = await this.diagramsRepository.findOne({
+      where: { public_share_token: token, public_share_enabled: true, is_deleted: false },
+    });
+    if (!diagram) throw new NotFoundException('Link de compartilhamento inválido ou revogado');
+    diagram.serialized_object = deserializeFromBase64(diagram.serialized_object);
+    return DiagramDTO.toDTO(diagram);
+  }
+
+  async shareWithUser(id: string, ownerId: string, email: string): Promise<void> {
+    const diagram = await this.findOwned(id, ownerId);
+    const user = await this.usersRepository.findOne({ where: { email } });
+    if (!user) throw new NotFoundException('Usuário não encontrado para este e-mail');
+    if (user.id === ownerId) throw new BadRequestException('Não é possível compartilhar um diagrama com o proprietário');
+    const existing = await this.sharedDiagramsRepository.findOne({
+      where: { diagram: { id: diagram.id }, user: { id: user.id } },
+    });
+    if (!existing) {
+      await this.sharedDiagramsRepository.save(this.sharedDiagramsRepository.create({
+        diagram,
+        user,
+        access_permission: AccessPermission.VIEWER,
+      }));
+    }
+  }
+
+  async listShares(id: string, ownerId: string) {
+    await this.findOwned(id, ownerId);
+    const shares = await this.sharedDiagramsRepository.find({
+      where: { diagram: { id } }, relations: ['user'], order: { created_at: 'DESC' },
+    });
+    return shares.map((share) => ({ id: share.id, email: share.user.email, name: share.user.name, access_permission: 'VIEWER' }));
+  }
+
+  async removeShare(id: string, shareId: string, ownerId: string): Promise<void> {
+    await this.findOwned(id, ownerId);
+    const share = await this.sharedDiagramsRepository.findOne({ where: { id: shareId, diagram: { id } } });
+    if (!share) throw new NotFoundException('Compartilhamento não encontrado');
+    await this.sharedDiagramsRepository.remove(share);
   }
 }

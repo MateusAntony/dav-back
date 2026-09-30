@@ -21,6 +21,7 @@ import {
   UpdateDiagramRequestDTO,
 } from 'src/interfaces/dto/diagrams/diagrams.request';
 import { AuthGuard } from '@nestjs/passport';
+import { SetPublicShareRequestDTO, ShareDiagramWithUserRequestDTO } from 'src/interfaces/dto/diagrams/sharing.request';
 
 @ApiTags('diagrams')
 @UseGuards(AuthGuard('jwt'))
@@ -46,6 +47,45 @@ export class DiagramsController {
     const userId = req.user['userId'];
     const diagrams = await this.diagramsService.findAll(userId);
     return res.status(HttpStatus.OK).send(diagrams);
+  }
+
+  @Post(':id/shares/public')
+  async setPublicShare(
+    @Param() params: FindOneParams,
+    @Body() body: SetPublicShareRequestDTO,
+    @Res() res: Response,
+    @Req() req: Request,
+  ) {
+    const diagram = await this.diagramsService.setPublicShare(params.id, req.user['userId'], body.enabled);
+    return res.status(HttpStatus.OK).send(diagram);
+  }
+
+  @Post(':id/shares')
+  async shareWithUser(
+    @Param() params: FindOneParams,
+    @Body() body: ShareDiagramWithUserRequestDTO,
+    @Res() res: Response,
+    @Req() req: Request,
+  ) {
+    await this.diagramsService.shareWithUser(params.id, req.user['userId'], body.email.toLowerCase());
+    return res.status(HttpStatus.CREATED).send({ message: 'Diagrama compartilhado para leitura' });
+  }
+
+  @Get(':id/shares')
+  async listShares(@Param() params: FindOneParams, @Res() res: Response, @Req() req: Request) {
+    const shares = await this.diagramsService.listShares(params.id, req.user['userId']);
+    return res.status(HttpStatus.OK).send(shares);
+  }
+
+  @Delete(':id/shares/:shareId')
+  async removeShare(
+    @Param('id') id: string,
+    @Param('shareId') shareId: string,
+    @Res() res: Response,
+    @Req() req: Request,
+  ) {
+    await this.diagramsService.removeShare(id, shareId, req.user['userId']);
+    return res.status(HttpStatus.NO_CONTENT).send();
   }
 
   @ApiResponse({ type: DiagramDTO })
@@ -89,5 +129,17 @@ export class DiagramsController {
       updateDiagramDto,
     );
     return res.status(HttpStatus.OK).send(updatedDiagram);
+  }
+}
+
+@ApiTags('public-diagrams')
+@Controller('public/diagrams')
+export class PublicDiagramsController {
+  constructor(private diagramsService: DiagramsService) {}
+
+  @Get(':token')
+  async findPublic(@Param('token') token: string, @Res() res: Response) {
+    const diagram = await this.diagramsService.getPublicDiagram(token);
+    return res.status(HttpStatus.OK).send(diagram);
   }
 }

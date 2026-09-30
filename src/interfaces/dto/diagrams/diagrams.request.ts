@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateDiagramRequestDTO {
 
@@ -18,13 +18,13 @@ export class CreateDiagramRequestDTO {
 export class UpdateDiagramRequestDTO {
 
   @ApiProperty()
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  name!: string;
+  name?: string;
 
 
   @ApiProperty()
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  serialized_object!: string;
+  serialized_object?: string;
 }
